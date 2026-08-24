@@ -1,0 +1,23 @@
+{
+  "name": "sandbox-auth",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Drop-in client for Sign in with Sandbox (auth.sandbox.is)",
+  "exports": {
+    "./core": {
+      "types": "./core.d.ts",
+      "default": "./core.mjs"
+    },
+    "./node": {
+      "default": "./node.mjs"
+    },
+    "./next": {
+      "types": "./next.d.ts",
+      "default": "./next.mjs"
+    }
+  },
+  "peerDependencies": {
+    "jose": ">=5"
+  },
+  "types": "./index.d.ts"
+}
