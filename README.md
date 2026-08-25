@@ -40,17 +40,15 @@ if (path === "/api/auth/callback") return sandbox.handleCallback(req, res);
 Environment, no code:
 
 ```
-SANDBOX_AUTH_CLIENT_ID          your public client id, registered with auth (e.g. members)
-SANDBOX_<CLIENT>_SESSION_SECRET  a long random string that signs YOUR session cookie,
-                                 named for your property — SANDBOX_MEMBERS_SESSION_SECRET
-                                 for the members client, SANDBOX_FINANCE_SESSION_SECRET
-                                 for finance, and so on
-SANDBOX_AUTH_ORIGIN             optional, defaults to https://auth.sandbox.is
+SANDBOX_AUTH_CLIENT_ID              your public client id, registered with auth
+SANDBOX_AUTH_CLIENT_SESSION_SECRET  a long random string that signs your own session
+                                    cookie (a cookie auth never sees)
+SANDBOX_AUTH_ORIGIN                 optional, defaults to https://auth.sandbox.is
 ```
 
-`SANDBOX_AUTH_*` is your relationship with Sandbox Auth; the session secret is
-your property's own — it signs a cookie auth never sees — so it is named for
-your property, and the library tells you the exact variable if it is missing.
+Your property is a client of Sandbox Auth, so both are `SANDBOX_AUTH_CLIENT_*`:
+the id auth knows you by, and the secret for the session you keep on your own
+side.
 
 ## Reading who is signed in
 
