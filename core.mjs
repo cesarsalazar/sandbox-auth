@@ -21,16 +21,24 @@ function keysFor(authOrigin, headers) {
 
 export function resolveConfig(o = {}) {
   const authOrigin = (o.authOrigin ?? process.env.SANDBOX_AUTH_ORIGIN ?? DEFAULT_AUTH).replace(/\/$/, '');
-  const clientId = o.clientId ?? process.env.SANDBOX_CLIENT_ID;
-  const sessionSecret = o.sessionSecret ?? process.env.SANDBOX_SESSION_SECRET;
-  if (!clientId) throw new Error('sandbox-auth: set SANDBOX_CLIENT_ID (or pass clientId)');
-  if (!sessionSecret) throw new Error('sandbox-auth: set SANDBOX_SESSION_SECRET (or pass sessionSecret)');
+  // Named for the systems they belong to. The client id is the property's id
+  // for Sandbox Auth. The session secret is the property's own — it signs the
+  // property's session cookie, which auth never sees — so it is named for the
+  // property, derived from the client id: SANDBOX_MEMBERS_SESSION_SECRET,
+  // SANDBOX_FINANCE_SESSION_SECRET, and so on.
+  const clientId = o.clientId ?? process.env.SANDBOX_AUTH_CLIENT_ID;
+  if (!clientId) throw new Error('sandbox-auth: set SANDBOX_AUTH_CLIENT_ID (or pass clientId)');
+  const slug = String(clientId).toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+  const secretVar = `SANDBOX_${slug}_SESSION_SECRET`;
+  const ttlVar = `SANDBOX_${slug}_SESSION_TTL`;
+  const sessionSecret = o.sessionSecret ?? process.env[secretVar];
+  if (!sessionSecret) throw new Error(`sandbox-auth: set ${secretVar} (or pass sessionSecret)`);
   return {
     authOrigin,
     clientId,
     sessionSecret,
     cookieBase: o.cookieName ?? 'sandbox_session',
-    sessionTtl: o.sessionTtl ?? (process.env.SANDBOX_SESSION_TTL ? Number(process.env.SANDBOX_SESSION_TTL) : DEFAULT_SESSION_TTL),
+    sessionTtl: o.sessionTtl ?? (process.env[ttlVar] ? Number(process.env[ttlVar]) : DEFAULT_SESSION_TTL),
     callbackPath: o.callbackPath ?? CALLBACK_PATH,
     txCookie: TX_COOKIE,
     // Only for reaching a protection-gated preview auth in testing; a property
