@@ -5,7 +5,7 @@
 // and where it needs the member:  const member = await getSession();
 import { NextResponse } from 'next/server';
 import { cookies as nextCookies } from 'next/headers';
-import { resolveConfig, completeSignIn, readSession, endSessionUrl, cookieName } from './core.mjs';
+import { resolveConfig, completeSignIn, readSession, revoked, endSessionUrl, cookieName } from './core.mjs';
 
 function cfgOnce(overrides) {
   return resolveConfig(overrides);
@@ -55,7 +55,10 @@ export async function getSession(overrides = {}) {
   const cfg = cfgOnce(overrides);
   const store = await nextCookies();
   const token = store.get(cookieName(cfg, true))?.value ?? store.get(cookieName(cfg, false))?.value;
-  return readSession(cfg, token);
+  const session = await readSession(cfg, token);
+  // A session the member has since signed out of Sandbox is no session here.
+  if (session && await revoked(cfg, session)) return null;
+  return session;
 }
 
 export function signOutUrl(overrides = {}, postLogout) {

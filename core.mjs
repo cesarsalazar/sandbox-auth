@@ -113,6 +113,30 @@ export async function readSession(cfg, token) {
   }
 }
 
+// Whether a Sandbox sign-out (or an admin revocation) has invalidated this
+// session. Auth records the moment a member's sessions were ended; any property
+// session issued before it is dead, while a fresh login after it — with a newer
+// issued-at — survives. The check is a fetch of a short-lived, CDN-cached
+// endpoint on auth, so it is edge-cheap and rarely reaches auth itself. It does
+// not make a property depend on auth being up: any error or timeout fails open,
+// leaving the session's own expiry as the backstop. Global effect lands within
+// the cache window (~15s).
+export async function revoked(cfg, session) {
+  if (!session?.sub || !session?.iat) return false;
+  let res;
+  try {
+    res = await fetch(`${cfg.authOrigin}/revocations/${encodeURIComponent(session.sub)}`, {
+      signal: AbortSignal.timeout(1500),
+    });
+  } catch {
+    return false; // auth unreachable — fail open rather than lock the property
+  }
+  if (!res.ok) return false;
+  const body = await res.json().catch(() => null);
+  const signedOutAt = body && typeof body.signedOutAt === 'number' ? body.signedOutAt : null;
+  return signedOutAt != null && signedOutAt > session.iat;
+}
+
 export function endSessionUrl(cfg, postLogout) {
   const url = new URL(`${cfg.authOrigin}/session/end`);
   if (postLogout) url.searchParams.set('post_logout_redirect_uri', postLogout);

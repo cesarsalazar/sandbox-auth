@@ -1,6 +1,6 @@
 // The Node http adapter. A property with a plain server wires three methods and
 // is done.
-import { resolveConfig, completeSignIn, readSession, endSessionUrl, cookieName } from './core.mjs';
+import { resolveConfig, completeSignIn, readSession, revoked, endSessionUrl, cookieName } from './core.mjs';
 
 function parseCookies(req) {
   const out = {};
@@ -66,7 +66,10 @@ export function sandboxAuth(overrides) {
     // The verified member, or null.
     async getSession(req) {
       const cookies = parseCookies(req);
-      return readSession(cfg, cookies[cookieName(cfg, true)] ?? cookies[cookieName(cfg, false)]);
+      const session = await readSession(cfg, cookies[cookieName(cfg, true)] ?? cookies[cookieName(cfg, false)]);
+      // A session the member has since signed out of Sandbox is no session here.
+      if (session && await revoked(cfg, session)) return null;
+      return session;
     },
 
     // Ends the local session; returns the auth sign-out URL to offer.
