@@ -1,16 +1,29 @@
 # sandbox-auth
 
-The drop-in a property uses to consume **[auth.sandbox.is](https://auth.sandbox.is)** — "Sign in with Sandbox".
+sandbox-auth lets your web app sign people in with their Sandbox account, through **[auth.sandbox.is](https://auth.sandbox.is)**.
 
-A property authenticates the *person*, not itself. It is a **public client**: there is no client secret. PKCE and an exact registered return URL do what a secret used to. Identity is central; **permissions are yours** — you read a member's roles from your own records, keyed on the Sandbox member id. Nothing about what anyone may do comes from Sandbox.
+When someone signs in, you find out who they are: their Sandbox member id, name, and email. What they're allowed to do is up to you — keep roles in your own database and look them up by the member id. Sandbox handles identity; your app handles permissions.
 
-Your whole integration is small: a button, one callback route, some configuration, and — if you gate pages — one middleware check.
+Each app gets its own session, tied to its own domain, so one Sandbox site can't read another's.
+
+There are two adapters, plus a framework-free core to build on for anything else:
+
+- **Next.js** (App Router) → `sandbox-auth/next`
+- **Node** (plain `http` server) → `sandbox-auth/node`
+- **anything else** → `sandbox-auth/core`
+
+The examples below cover Next.js and Node. Setting it up is four small steps:
+
+1. [the button](#1-the-button) on your login page
+2. [one callback route](#2-the-callback)
+3. [configuration](#3-configuration)
+4. [reading who's signed in](#read-whos-signed-in) — plus a [middleware check](#gate-pages) if you protect pages
 
 ---
 
 ## Install
 
-Not on npm (deliberately — so it can't be picked up by accident). Depend on it from the public repo, pinned to a tag:
+Install it from GitHub, pinned to a version tag. It isn't published to npm.
 
 ```json
 {
@@ -21,35 +34,40 @@ Not on npm (deliberately — so it can't be picked up by accident). Depend on it
 }
 ```
 
-`jose` is a peer dependency (used for the JWT it signs and verifies). Most apps already have it; add it if not.
+`jose` does the signing and checking of the session token. Install it alongside if your app doesn't already use it.
 
 ---
 
 ## 1. The button
 
-Served from auth. It does all the preparation — PKCE, state, nonce — and sends the browser straight to auth. The property builds no login-start of its own. Put it on your login page:
+The button comes from auth: a snippet of HTML and a script tag that work on any page. The script sets up the sign-in and sends the person to auth to log in. Add it to your login page:
 
 ```html
 <div data-sandbox-signin data-client="your-client-id"></div>
 <script src="https://auth.sandbox.is/button.js"></script>
 ```
 
-| attribute | |
-|---|---|
-| `data-client` | **required** — your registered client id |
-| `data-next` | optional — where to land after signing in, e.g. `/dashboard` |
+To send them to a particular page after they sign in, add `data-next`:
 
-(`data-callback` and `data-scope` exist for advanced use; the defaults — `<origin>/api/auth/callback` and `openid` — are what you want.)
+```html
+<div data-sandbox-signin data-client="your-client-id" data-next="/dashboard"></div>
+```
 
-**Next.js** login page:
+| attribute | | |
+|---|---|---|
+| `data-client` | **required** | your registered client id |
+| `data-next` | optional | where to land after signing in |
+
+In a Next.js app, use the same two tags and load the script with `next/script`:
 
 ```tsx
+// app/login/page.tsx
 import Script from "next/script";
 
 export default function Login() {
   return (
     <>
-      <div data-sandbox-signin data-client="your-client-id" />
+      <div data-sandbox-signin data-client="your-client-id" data-next="/dashboard" />
       <Script src="https://auth.sandbox.is/button.js" strategy="afterInteractive" />
     </>
   );
@@ -58,15 +76,15 @@ export default function Login() {
 
 ## 2. The callback
 
-The one route you mount. It receives the redirect back from auth, exchanges the code, verifies the identity token, and sets **your own** session cookie (a `__Host-`-prefixed, host-only cookie auth never sees).
+You add one route. It handles the person coming back from auth: it checks them and sets your app's session cookie.
 
-**Next.js** — `app/api/auth/callback/route.ts`:
+**Next.js** — the whole route file, `app/api/auth/callback/route.ts`:
 
 ```ts
 export { GET } from "sandbox-auth/next";
 ```
 
-**Plain Node http:**
+**Node** — one method on your server:
 
 ```js
 import { sandboxAuth } from "sandbox-auth/node";
@@ -76,25 +94,27 @@ const sandbox = sandboxAuth();
 if (path === "/api/auth/callback") return sandbox.handleCallback(req, res);
 ```
 
-The callback must live at the path you registered with auth. The default is `/api/auth/callback`; to use another, set `callbackPath` in config **and** register that URL.
+Put it at the path you registered with auth. The default is `/api/auth/callback`; to use a different one, set `callbackPath` in your config and register that URL instead.
 
 ## 3. Configuration
 
-Environment, no code:
+Set these in your environment. They work the same for both adapters.
 
-| variable | |
-|---|---|
-| `SANDBOX_AUTH_CLIENT_ID` | **required** — your public client id, registered with auth |
-| `SANDBOX_AUTH_CLIENT_SESSION_SECRET` | **required** — a long random string that signs your own session cookie (auth never sees it) |
-| `SANDBOX_AUTH_ORIGIN` | optional — defaults to `https://auth.sandbox.is` |
-| `SANDBOX_AUTH_CLIENT_SESSION_TTL` | optional — session lifetime in seconds; defaults to 30 days |
-| `SANDBOX_AUTH_BYPASS` | optional — only for reaching a protection-gated **preview** auth in testing; never set against production |
+| variable | | |
+|---|---|---|
+| `SANDBOX_AUTH_CLIENT_ID` | **required** | your client id, registered with auth |
+| `SANDBOX_AUTH_CLIENT_SESSION_SECRET` | **required** | a long random string that signs your session cookie |
+| `SANDBOX_AUTH_ORIGIN` | optional | defaults to `https://auth.sandbox.is` |
+| `SANDBOX_AUTH_CLIENT_SESSION_TTL` | optional | how long a session lasts, in seconds; defaults to 30 days |
+| `SANDBOX_AUTH_BYPASS` | optional | for testing against a protected preview of auth; leave unset in production |
 
-Your property is a client of Sandbox Auth, so both required names are `SANDBOX_AUTH_CLIENT_*`: the id auth knows you by, and the secret for the session you keep on your own side. Any of these can also be passed in code — every entry point takes an optional overrides object (`{ clientId, sessionSecret, authOrigin, sessionTtl, cookieName, callbackPath }`).
+Both required names start with `SANDBOX_AUTH_CLIENT_` because your app is a client of Sandbox Auth: `CLIENT_ID` is how auth knows you, and `CLIENT_SESSION_SECRET` signs the session cookie you keep on your own side.
+
+You can also pass any of these in code instead of the environment. Every entry point accepts an overrides object: `{ clientId, sessionSecret, authOrigin, sessionTtl, cookieName, callbackPath }`.
 
 ---
 
-## Reading who is signed in
+## Read who's signed in
 
 **Next.js** — in a server component, route handler, or server action:
 
@@ -104,13 +124,13 @@ import { getSession } from "sandbox-auth/next";
 const member = await getSession(); // { sub, name, email, iat } | null
 ```
 
-**Node:**
+**Node** — from the request:
 
 ```js
-const member = await sandbox.getSession(req);
+const member = await sandbox.getSession(req); // { sub, name, email, iat } | null
 ```
 
-`member.sub` is the Sandbox member id. Look up roles in your own records, keyed on it:
+`member.sub` is the person's Sandbox id. Use it to find their role in your own data:
 
 ```ts
 const member = await getSession();
@@ -118,11 +138,11 @@ if (!member) return redirect("/login");
 const { role } = await db.members.findBySub(member.sub); // your table, your rules
 ```
 
-`getSession` also honors a Sandbox sign-out (see below) — a session the member has since signed out of is returned as `null`.
+## Gate pages
 
-## Protecting pages (middleware)
+In **Next.js**, protect pages with middleware. It does three things: let public paths through, read the session from the cookie, and send anyone without one to `/login`. Because it runs on every request, it's also where a Sandbox sign-out gets caught, before the page loads.
 
-`getSession` reads cookies via `next/headers`, which middleware can't use — so in middleware use the core primitives directly. This also lets you run the sign-out check (`revoked`) at the edge, before a page renders:
+Middleware can't use `next/headers`, so it reaches for the `core` functions directly. Copy this and edit `PUBLIC` for your app:
 
 ```ts
 // middleware.ts
@@ -131,29 +151,21 @@ import { resolveConfig, readSession, revoked, cookieName } from "sandbox-auth/co
 
 const PUBLIC = ["/login", "/api/auth"];
 
-let cfg: ReturnType<typeof resolveConfig> | null = null;
-const getCfg = () => (cfg ??= resolveConfig());
-
 export default async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (PUBLIC.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
+  const cfg = resolveConfig();
   const token =
-    request.cookies.get(cookieName(getCfg(), true))?.value ??
-    request.cookies.get(cookieName(getCfg(), false))?.value;
-  const session = await readSession(getCfg(), token);
-  const signedOut = session ? await revoked(getCfg(), session) : false;
+    request.cookies.get(cookieName(cfg, true))?.value ??
+    request.cookies.get(cookieName(cfg, false))?.value;
+  const session = await readSession(cfg, token);
 
-  if (!session || signedOut) {
+  // No session, or one from before a Sandbox sign-out → back to login.
+  if (!session || (await revoked(cfg, session))) {
     const login = new URL("/login", request.url);
     login.searchParams.set("next", pathname + request.nextUrl.search);
-    const res = NextResponse.redirect(login);
-    if (signedOut) {
-      for (const secure of [true, false]) {
-        res.cookies.set(cookieName(getCfg(), secure), "", { path: "/", maxAge: 0 });
-      }
-    }
-    return res;
+    return NextResponse.redirect(login);
   }
   return NextResponse.next();
 }
@@ -161,93 +173,79 @@ export default async function middleware(request: NextRequest) {
 export const config = { matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"] };
 ```
 
+On a plain **Node** server there's no separate step. Call `sandbox.getSession(req)` at the top of each protected handler — it runs the same sign-out check — and redirect when it returns `null`.
+
 ---
 
-## Signing out
+## Sign out
 
-There are two different things a person can mean by "sign out."
+Signing out can mean two things: leaving your app, or leaving Sandbox entirely.
 
-**Sign out of your property** — end the local session:
-
-**Next.js** — in a route handler:
+**Leave your app** — clear the local session cookie. In a Next.js route handler, `signOut` clears it on the response, and `signOutUrl` gives you the Sandbox sign-out URL to hand back:
 
 ```ts
 import { NextResponse } from "next/server";
 import { signOut, signOutUrl } from "sandbox-auth/next";
 
 export async function POST() {
-  const endSessionUrl = signOutUrl({}, "https://your-property/");
-  const res = NextResponse.json({ ok: true, endSessionUrl });
-  signOut(res, {}, "https://your-property/"); // clears the session cookie on `res`
+  const home = "https://your-property/";
+  const res = NextResponse.json({ endSessionUrl: signOutUrl({}, home) });
+  signOut(res, {}, home); // clears the session cookie
   return res;
 }
 ```
 
-**Node:**
+Node:
 
 ```js
 const authSignOutUrl = sandbox.signOut(req, res); // clears the cookie, returns the auth sign-out URL
 ```
 
-**Sign out of Sandbox too** — send the browser to the returned URL. Auth shows a "Sign out of Sandbox?" screen and ends the central session. Offer this as the next step when the member meant "everywhere":
+**Leave Sandbox too** — send the person to the URL those calls return. Auth shows a "Sign out of Sandbox?" page and ends the central session. Offer it as a second step, once your app's logout finishes:
 
 ```ts
 const { endSessionUrl } = await (await fetch("/api/auth/logout", { method: "POST" })).json();
 window.location.href = endSessionUrl;
 ```
 
-You can also get that URL directly with `signOutUrl(overrides?, postLogout?)`.
+### Signing out of Sandbox signs out everywhere
 
-### Sign-out-everywhere (revocation)
+When someone signs out of Sandbox, their session ends in every app, not just the one they were in. Auth records the sign-out, and both `getSession` and the middleware check reject any session created before it, clearing the cookie. The same thing happens when an admin removes a member.
 
-*Since v0.4.0.* Each property keeps its own cookie, so on its own a Sandbox sign-out could not reach into a property and end its session. It does now: auth records each sign-out, and `getSession` (and the `revoked()` check in your middleware) asks auth whether the member signed out *after* this session was issued. If so, the session is rejected and the cookie dropped.
+- `getSession` does this automatically, in both adapters. In Next.js middleware, call `revoked(cfg, session)` yourself, as shown above.
+- The check calls a small, cached endpoint on auth, so it's fast and rarely reaches auth itself.
+- If it can't reach auth, it treats the session as still valid — an auth outage never locks people out of your app. The session's normal expiry is the backstop.
+- It takes effect within about 15 seconds. A login after the sign-out is newer, so it isn't affected.
 
-- **Automatic** in `getSession`. In middleware, call `revoked(cfg, session)` yourself, as shown above.
-- **Fail-open.** The check is a fetch of a short-lived, CDN-cached endpoint on auth; any error or timeout returns "not revoked," so an auth blip never locks your property. The session's own expiry is the backstop.
-- **Prompt, not instant.** Global effect lands within the cache window (~15 seconds). A fresh login afterward has a newer issued-at and survives.
-
-This also means an admin revoking a member in auth signs them out of every property, by the same mechanism.
+*Requires v0.4.0.*
 
 ---
 
-## API reference
+## API
 
-### `sandbox-auth/next`
+**`sandbox-auth/next`**
 
 | | |
 |---|---|
 | `GET(request)` | the default callback handler — `export { GET } from "sandbox-auth/next"` |
-| `callback(overrides?)` | build a callback handler with explicit config |
-| `getSession(overrides?)` | the signed-in member, or `null` (revocation-aware) |
-| `signOut(response, overrides?, postLogout?)` | clear the local cookie on `response`; returns the auth sign-out URL |
-| `signOutUrl(overrides?, postLogout?)` | the auth sign-out URL, without touching a response |
+| `callback(overrides?)` | a callback handler with explicit config |
+| `getSession(overrides?)` | the signed-in member, or `null` |
+| `signOut(response, overrides?, postLogout?)` | clears the cookie on `response`, returns the auth sign-out URL |
+| `signOutUrl(overrides?, postLogout?)` | the auth sign-out URL |
 
-### `sandbox-auth/node`
+**`sandbox-auth/node`** — `sandboxAuth(overrides?)` returns `{ cfg, handleCallback(req, res), getSession(req), signOut(req, res) }`.
 
-`sandboxAuth(overrides?)` returns `{ cfg, handleCallback(req, res), getSession(req), signOut(req, res) }`.
-
-### `sandbox-auth/core`
-
-Framework-free building blocks (used by the adapters, and by middleware):
-
-| | |
-|---|---|
-| `resolveConfig(overrides?)` | resolve env + overrides into a config object |
-| `cookieName(cfg, secure)` | the session cookie name (`__Host-` prefixed when secure) |
-| `readSession(cfg, token)` | verify a session token → member or `null` |
-| `revoked(cfg, session)` | has this session been signed out of Sandbox? (fail-open) |
-| `completeSignIn({ cfg, query, cookies, redirectUri })` | the callback exchange, as pure data in/out |
-| `endSessionUrl(cfg, postLogout?)` | the auth sign-out URL |
+**`sandbox-auth/core`** — the building blocks the adapters use, and what you reach for in middleware: `resolveConfig`, `cookieName`, `readSession`, `revoked`, `completeSignIn`, `endSessionUrl`.
 
 ---
 
-## Requirements
+## Before you start
 
-- Your **client id and redirect URI must be registered with auth** — the exact return-URL allowlist is the security boundary that stands in for a client secret. A property talks to auth only after it's registered.
-- Serve the property over **HTTPS** in production. The session cookie is `__Host-`-prefixed (host-only, secure, root path), which a plain-http dev server cannot set — the name falls back there, so local development still works.
+- **Register your app with auth.** Your client id and return URL have to be added to auth's client list first. Auth only sends people back to a URL you registered, which is what keeps a public client safe.
+- **Serve over HTTPS in production.** The session cookie uses the `__Host-` prefix, which requires it. On a plain http dev server the cookie name changes automatically, so local development still works.
 
-## What this is not
+## How it's designed
 
-- **Not a shared session.** Each property keeps its own host-only cookie; a hostile subdomain can neither read nor set it.
-- **Not a place for roles.** Identity is central; permissions are local to each property.
-- **Not holding a secret.** PKCE and the exact return URL do what a client secret used to.
+- **No client secret.** Your app doesn't hold one. Auth only returns people to a URL you registered ahead of time, and the sign-in uses PKCE — together those keep it secure.
+- **Identity is central, permissions are local.** Auth says who someone is; your app decides what they can do.
+- **Separate sessions.** Each app has its own session cookie, tied to its own domain. One subdomain can't read or change another's.
