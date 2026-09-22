@@ -2,7 +2,7 @@
 
 sandbox-auth lets your web app sign people in with their Sandbox account, through **[auth.sandbox.is](https://auth.sandbox.is)**.
 
-When someone signs in, you find out who they are: their Sandbox member id, name, and email. What they're allowed to do is up to you — keep roles in your own database and look them up by the member id. Sandbox handles identity; your app handles permissions.
+When someone signs in, you find out who they are: their Sandbox member id, name, email, and photo if they have one. What they're allowed to do is up to you — keep roles in your own database and look them up by the member id. Sandbox handles identity; your app handles permissions.
 
 Each app gets its own session, tied to its own domain, so one Sandbox site can't read another's.
 
@@ -121,13 +121,13 @@ You can also pass any of these in code instead of the environment. Every entry p
 ```ts
 import { getSession } from "sandbox-auth/next";
 
-const member = await getSession(); // { sub, name, email, iat } | null
+const member = await getSession(); // { sub, name, email, picture?, iat } | null
 ```
 
 **Node** — from the request:
 
 ```js
-const member = await sandbox.getSession(req); // { sub, name, email, iat } | null
+const member = await sandbox.getSession(req); // { sub, name, email, picture?, iat } | null
 ```
 
 `member.sub` is the person's Sandbox id. Use it to find their role in your own data:

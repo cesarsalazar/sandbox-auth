@@ -90,8 +90,11 @@ export async function completeSignIn({ cfg, query, cookies, redirectUri }) {
   }
   if (claims.nonce !== tx.nonce) return { error: 'nonce_mismatch' };
 
+  // The picture is the member's photo URL, and absent for a member without one.
   const member = { sub: String(claims.sub), name: claims.name, email: claims.email };
-  const token = await new SignJWT({ name: member.name, email: member.email })
+  if (claims.picture) member.picture = claims.picture;
+  const { sub, ...profile } = member;
+  const token = await new SignJWT(profile)
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(member.sub)
     .setIssuedAt()
@@ -107,7 +110,9 @@ export async function readSession(cfg, token) {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secretBytes(cfg));
-    return { sub: String(payload.sub), name: payload.name, email: payload.email, iat: payload.iat };
+    const member = { sub: String(payload.sub), name: payload.name, email: payload.email, iat: payload.iat };
+    if (payload.picture) member.picture = payload.picture;
+    return member;
   } catch {
     return null;
   }
