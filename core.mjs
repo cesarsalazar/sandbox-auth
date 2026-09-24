@@ -90,9 +90,7 @@ export async function completeSignIn({ cfg, query, cookies, redirectUri }) {
   }
   if (claims.nonce !== tx.nonce) return { error: 'nonce_mismatch' };
 
-  // The picture is the member's photo URL, and absent for a member without one.
-  const member = { sub: String(claims.sub), name: claims.name, email: claims.email };
-  if (claims.picture) member.picture = claims.picture;
+  const member = withOptional({ sub: String(claims.sub), name: claims.name, email: claims.email }, claims);
   const { sub, ...profile } = member;
   const token = await new SignJWT(profile)
     .setProtectedHeader({ alg: 'HS256' })
@@ -104,15 +102,29 @@ export async function completeSignIn({ cfg, query, cookies, redirectUri }) {
   return { member, token, next: safeNext(tx.next) };
 }
 
+// What auth sends only when there is something to send, copied through as is
+// and left out otherwise — never null. The photo URL and phone number go to
+// every property; member_data only to an app a member built, holding the
+// profile fields the member agreed to share with it.
+const OPTIONAL = ['picture', 'phone_number', 'member_data'];
+
+function withOptional(member, claims) {
+  for (const key of OPTIONAL) {
+    if (claims[key] != null) member[key] = claims[key];
+  }
+  return member;
+}
+
 // The verified member behind a session token, or null. Identity only — a
 // property reads its own roles from its own records, never from here.
 export async function readSession(cfg, token) {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secretBytes(cfg));
-    const member = { sub: String(payload.sub), name: payload.name, email: payload.email, iat: payload.iat };
-    if (payload.picture) member.picture = payload.picture;
-    return member;
+    return withOptional(
+      { sub: String(payload.sub), name: payload.name, email: payload.email, iat: payload.iat },
+      payload,
+    );
   } catch {
     return null;
   }
