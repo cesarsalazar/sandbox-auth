@@ -28,7 +28,7 @@ Install it from GitHub, pinned to a version tag. It isn't published to npm.
 ```json
 {
   "dependencies": {
-    "sandbox-auth": "git+https://github.com/cesarsalazar/sandbox-auth.git#v0.4.0",
+    "sandbox-auth": "git+https://github.com/cesarsalazar/sandbox-auth.git#v0.6.0",
     "jose": "^5"
   }
 }
@@ -94,7 +94,7 @@ const sandbox = sandboxAuth();
 if (path === "/api/auth/callback") return sandbox.handleCallback(req, res);
 ```
 
-Put it at the path you registered with auth. The default is `/api/auth/callback`; to use a different one, set `callbackPath` in your config and register that URL instead.
+Put it at `/api/auth/callback`. If you build your own app and link it on members.sandbox.is, that path is fixed: auth always sends people back to your origin plus `/api/auth/callback`. Only Sandbox's own properties can use a different path, which they set with `callbackPath`.
 
 ## 3. Configuration
 
@@ -241,7 +241,7 @@ When someone signs out of Sandbox, their session ends in every app, not just the
 
 ## Before you start
 
-- **Register your app with auth.** Your client id and return URL have to be added to auth's client list first. Auth only sends people back to a URL you registered, which is what keeps a public client safe.
+- **Get a client id.** If you're a member building your own app, link it on the Vibes page at members.sandbox.is, giving its live https address and, if you like, a local port for development. Once an admin approves it you get a client id. Auth only sends people back to the addresses registered then, which is what keeps a public client safe. The first time each person signs in, they're asked whether to share their details with your app.
 - **Serve over HTTPS in production.** The session cookie uses the `__Host-` prefix, which requires it. On a plain http dev server the cookie name changes automatically, so local development still works.
 
 ## How it's designed
