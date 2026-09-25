@@ -1,6 +1,8 @@
 import type { SandboxConfig, SandboxMember } from "./index";
 export function resolveConfig(o?: SandboxConfig): Required<SandboxConfig> & { txCookie: string };
 export function cookieName(cfg: unknown, secure: boolean): string;
+/** The session cookie's value, or null. Needs no config, so it works before the app has a client id. */
+export function sessionToken(cookies: { get(name: string): string | { value: string } | undefined }, overrides?: SandboxConfig): string | null;
 export function readSession(cfg: unknown, token?: string): Promise<SandboxMember | null>;
 export function revoked(cfg: unknown, session?: SandboxMember | null): Promise<boolean>;
 export function completeSignIn(a: { cfg: unknown; query: Record<string,string>; cookies: Record<string,string>; redirectUri: string }): Promise<{ member?: SandboxMember; token?: string; next?: string; error?: string }>;

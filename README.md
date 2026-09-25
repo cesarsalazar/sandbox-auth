@@ -25,7 +25,7 @@ The examples below cover Next.js and Node. Setting it up is four small steps, af
 
 Sign in with Sandbox is for Sandbox members. To use it in an app you build:
 
-1. **Deploy it first.** Linking needs your app's live https address. That first deploy can go out without a client id: it builds, and nobody is signed in yet.
+1. **Deploy it first.** Linking needs your app's live https address. That first deploy can go out without a client id: it builds, protected pages send people to your login page, and the login page shows no button yet. You can set `SANDBOX_AUTH_CLIENT_SESSION_SECRET` straight away; only the client id waits for approval.
 2. **Link it** on the Vibes page at [members.sandbox.is/vibes](https://members.sandbox.is/vibes) (you sign in with Sandbox). Give its address, a local port for development if you want one, and any [profile fields](#profile-fields) you'd like to ask for.
 3. **Wait for an admin to approve it.** The Vibes page then shows your client id.
 4. **Add the id** to your app's environment ([configuration](#3-configuration)), including for its build step, and deploy again.
@@ -47,7 +47,7 @@ Install it from GitHub, pinned to a version tag. It isn't published to npm.
 ```json
 {
   "dependencies": {
-    "sandbox-auth": "git+https://github.com/cesarsalazar/sandbox-auth.git#v0.7.0",
+    "sandbox-auth": "git+https://github.com/cesarsalazar/sandbox-auth.git#v0.7.1",
     "jose": "^5"
   }
 }
@@ -198,7 +198,7 @@ The proxy can't use `next/headers`, so it reaches for the `core` functions direc
 ```ts
 // proxy.ts, next to your app directory
 import { NextRequest, NextResponse } from "next/server";
-import { resolveConfig, readSession, revoked, cookieName } from "sandbox-auth/core";
+import { resolveConfig, readSession, revoked, sessionToken } from "sandbox-auth/core";
 
 const PUBLIC = ["/login", "/api/auth"];
 
@@ -206,14 +206,18 @@ export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (PUBLIC.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
-  const cfg = resolveConfig();
-  const token =
-    request.cookies.get(cookieName(cfg, true))?.value ??
-    request.cookies.get(cookieName(cfg, false))?.value;
-  const session = await readSession(cfg, token);
+  // The cookie first: without one there's nothing to check, and this works
+  // before your app has its client id.
+  const token = sessionToken(request.cookies);
+  let signedIn = false;
+  if (token) {
+    const cfg = resolveConfig();
+    const session = await readSession(cfg, token);
+    signedIn = session !== null && !(await revoked(cfg, session));
+  }
 
   // No session, or one from before a Sandbox sign-out → back to login.
-  if (!session || (await revoked(cfg, session))) {
+  if (!signedIn) {
     const login = new URL("/login", request.url);
     login.searchParams.set("next", pathname + request.nextUrl.search);
     return NextResponse.redirect(login);
@@ -286,7 +290,7 @@ When someone signs out of Sandbox, their session ends in every app, not just the
 
 **`sandbox-auth/node`** — `sandboxAuth(overrides?)` returns `{ cfg, handleCallback(req, res), getSession(req), signOut(req, res) }`.
 
-**`sandbox-auth/core`** — the building blocks the adapters use, and what you reach for in the proxy: `resolveConfig`, `cookieName`, `readSession`, `revoked`, `completeSignIn`, `endSessionUrl`.
+**`sandbox-auth/core`** — the building blocks the adapters use, and what you reach for in the proxy: `resolveConfig`, `sessionToken`, `cookieName`, `readSession`, `revoked`, `completeSignIn`, `endSessionUrl`. `sessionToken(cookies)` reads the session cookie without needing any configuration.
 
 ---
 
