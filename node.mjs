@@ -18,13 +18,18 @@ function originOf(req) {
   return `${proto}://${host}`;
 }
 
-const ERROR_PAGE = (retry) => `<!doctype html><meta charset="utf-8">
+const escapeHtml = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+// The reason is for whoever builds the app; the member is told only what they
+// need, and that their account is fine.
+const ERROR_PAGE = (retry, reason) => `<!doctype html><meta charset="utf-8">
 <title>Sign-in could not be completed</title>
 <style>body{font:15px/1.6 ui-sans-serif,system-ui,sans-serif;color:#111;background:#fafafa;display:flex;min-height:100dvh;align-items:center;justify-content:center;margin:0}main{max-width:26rem;text-align:center;padding:2rem}a{color:#211AFF}</style>
 <main><h1 style="font-size:1.1rem">Sign-in could not be completed</h1>
-<p style="color:#6b7280">Nothing is wrong with your account. <a href="${retry}">Try again</a>.</p></main>`;
+<p style="color:#6b7280">Nothing is wrong with your account. <a href="${retry}">Try again</a>.</p>
+<p style="color:#9ca3af;font-size:12px">${escapeHtml(reason)}</p></main>`;
 
-export function sandboxAuth(overrides) {
+export function sandboxAuth(overrides = {}) {
   const cfg = resolveConfig(overrides);
 
   function clearTx(secure) {
@@ -50,7 +55,7 @@ export function sandboxAuth(overrides) {
         res.statusCode = 400;
         res.setHeader('content-type', 'text/html; charset=utf-8');
         res.setHeader('set-cookie', clearTx(secure));
-        res.end(ERROR_PAGE(overrides.retryPath || '/'));
+        res.end(ERROR_PAGE(overrides.retryPath || '/', result.error));
         return;
       }
 

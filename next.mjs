@@ -28,8 +28,13 @@ export function callback(overrides = {}) {
     const cookies = Object.fromEntries((request.cookies.getAll?.() ?? []).map((c) => [c.name, c.value]));
     const result = await completeSignIn({ cfg, query, cookies, redirectUri: `${origin}${cfg.callbackPath}` });
 
+    // Back to the sign-in page, saying why, so the app can tell the member and
+    // the builder can tell what broke. access_denied is the member choosing
+    // Cancel on auth's consent screen; the rest are listed in the README.
     if (result.error) {
-      const res = NextResponse.redirect(new URL(overrides.retryPath || '/login', origin));
+      const retry = new URL(overrides.retryPath || '/login', origin);
+      retry.searchParams.set('error', result.error);
+      const res = NextResponse.redirect(retry);
       res.cookies.delete(cfg.txCookie);
       return res;
     }
@@ -51,10 +56,17 @@ export async function GET(request) {
 }
 
 // Read the member in a server component / route / middleware.
+//
+// Cookies first, config second. Reading cookies is what tells Next the page
+// is dynamic, so a build never pre-renders it — and someone with no session
+// is simply nobody, whatever is configured. Together those let a first deploy
+// build and run before the app has its client id.
 export async function getSession(overrides = {}) {
-  const cfg = cfgOnce(overrides);
   const store = await nextCookies();
-  const token = store.get(cookieName(cfg, true))?.value ?? store.get(cookieName(cfg, false))?.value;
+  const base = { cookieBase: overrides.cookieName ?? 'sandbox_session' };
+  const token = store.get(cookieName(base, true))?.value ?? store.get(cookieName(base, false))?.value;
+  if (!token) return null;
+  const cfg = cfgOnce(overrides);
   const session = await readSession(cfg, token);
   // A session the member has since signed out of Sandbox is no session here.
   if (session && await revoked(cfg, session)) return null;
