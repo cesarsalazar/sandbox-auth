@@ -11,6 +11,7 @@ const DEFAULT_AUTH = 'https://auth.sandbox.is';
 const CALLBACK_PATH = '/api/auth/callback';
 const TX_COOKIE = 'sbx_auth';                 // the button sets this on the property's origin
 const DEFAULT_SESSION_TTL = 30 * 24 * 60 * 60;
+const DEFAULT_COOKIE = 'sandbox_session';
 
 const jwks = new Map();
 function keysFor(authOrigin, headers) {
@@ -33,7 +34,7 @@ export function resolveConfig(o = {}) {
     authOrigin,
     clientId,
     sessionSecret,
-    cookieBase: o.cookieName ?? 'sandbox_session',
+    cookieBase: o.cookieName ?? DEFAULT_COOKIE,
     sessionTtl: o.sessionTtl ?? (process.env.SANDBOX_AUTH_CLIENT_SESSION_TTL ? Number(process.env.SANDBOX_AUTH_CLIENT_SESSION_TTL) : DEFAULT_SESSION_TTL),
     callbackPath: o.callbackPath ?? CALLBACK_PATH,
     txCookie: TX_COOKIE,
@@ -47,6 +48,19 @@ export function resolveConfig(o = {}) {
 // plain http dev server cannot set it, so the name falls back there.
 export function cookieName(cfg, secure) {
   return secure ? `__Host-${cfg.cookieBase}` : cfg.cookieBase;
+}
+
+// The session cookie's value, from anything with a get(name) that answers a
+// string or { value } — Next's request and header cookies, a Map, a plain
+// lookup. Needs no config: someone without the cookie is nobody, and saying
+// so does not wait for the app to have its client id.
+export function sessionToken(cookies, overrides = {}) {
+  const base = { cookieBase: overrides.cookieName ?? DEFAULT_COOKIE };
+  const read = (name) => {
+    const found = cookies.get(name);
+    return typeof found === 'string' ? found : found?.value;
+  };
+  return read(cookieName(base, true)) ?? read(cookieName(base, false)) ?? null;
 }
 
 const secretBytes = (cfg) => new TextEncoder().encode(cfg.sessionSecret);

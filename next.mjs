@@ -5,7 +5,7 @@
 // and where it needs the member:  const member = await getSession();
 import { NextResponse } from 'next/server';
 import { cookies as nextCookies } from 'next/headers';
-import { resolveConfig, completeSignIn, readSession, revoked, endSessionUrl, cookieName } from './core.mjs';
+import { resolveConfig, completeSignIn, readSession, revoked, endSessionUrl, cookieName, sessionToken } from './core.mjs';
 
 function cfgOnce(overrides) {
   return resolveConfig(overrides);
@@ -62,9 +62,7 @@ export async function GET(request) {
 // is simply nobody, whatever is configured. Together those let a first deploy
 // build and run before the app has its client id.
 export async function getSession(overrides = {}) {
-  const store = await nextCookies();
-  const base = { cookieBase: overrides.cookieName ?? 'sandbox_session' };
-  const token = store.get(cookieName(base, true))?.value ?? store.get(cookieName(base, false))?.value;
+  const token = sessionToken(await nextCookies(), overrides);
   if (!token) return null;
   const cfg = cfgOnce(overrides);
   const session = await readSession(cfg, token);
