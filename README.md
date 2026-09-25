@@ -12,12 +12,31 @@ There are two adapters, plus a framework-free core to build on for anything else
 - **Node** (plain `http` server) → `sandbox-auth/node`
 - **anything else** → `sandbox-auth/core`
 
-The examples below cover Next.js and Node. Setting it up is four small steps:
+The examples below cover Next.js and Node. Setting it up is four small steps, after [linking your app](#0-link-your-app):
 
 1. [the button](#1-the-button) on your login page
 2. [one callback route](#2-the-callback)
 3. [configuration](#3-configuration)
 4. [reading who's signed in](#read-whos-signed-in) — plus a [middleware check](#gate-pages) if you protect pages
+
+---
+
+## 0. Link your app
+
+Sign in with Sandbox is for Sandbox members. To use it in an app you build:
+
+1. **Deploy it first.** Linking needs your app's live https address. That first deploy can go out without a client id: it builds, and nobody is signed in yet.
+2. **Link it** on the Vibes page at [members.sandbox.is/vibes](https://members.sandbox.is/vibes) (you sign in with Sandbox). Give its address, a local port for development if you want one, and any [profile fields](#profile-fields) you'd like to ask for.
+3. **Wait for an admin to approve it.** The Vibes page then shows your client id.
+4. **Add the id** to your app's environment ([configuration](#3-configuration)), including for its build step, and deploy again.
+
+What auth accepts as your app's address:
+
+- A bare https address with no path, like `https://polls.example.com`. It can't be changed later; a new address means linking again.
+- Not `localhost`, and nothing under `sandbox.is`. For local development, give a port instead.
+- Auth then sends people back to exactly `https://<your address>/api/auth/callback`, and `http://localhost:<port>/api/auth/callback` if you gave a port. Your callback route has to be at that path.
+
+The first time each person signs in, auth asks whether to share their details with your app: the basics, and each profile field you asked for, one by one. Their answer is remembered until they remove your app at auth.sandbox.is.
 
 ---
 
@@ -28,7 +47,7 @@ Install it from GitHub, pinned to a version tag. It isn't published to npm.
 ```json
 {
   "dependencies": {
-    "sandbox-auth": "git+https://github.com/cesarsalazar/sandbox-auth.git#v0.6.0",
+    "sandbox-auth": "git+https://github.com/cesarsalazar/sandbox-auth.git#v0.7.0",
     "jose": "^5"
   }
 }
@@ -57,17 +76,24 @@ To send them to a particular page after they sign in, add `data-next`:
 |---|---|---|
 | `data-client` | **required** | your registered client id |
 | `data-next` | optional | where to land after signing in |
+| `data-callback` | leave unset | your callback URL; defaults to your origin plus `/api/auth/callback`, the only one a linked app can use |
+| `data-scope` | leave unset | defaults to `openid`, the only scope there is |
 
-In a Next.js app, use the same two tags and load the script with `next/script`:
+If the button doesn't appear, the client id isn't one auth knows. See [troubleshooting](#troubleshooting).
+
+In a Next.js app, use the same two tags and load the script with `next/script`. This version also sends people back to the page they were trying to reach, which the [page check](#gate-pages) passes as `?next=`, and shows why a sign-in failed, which the callback passes as `?error=`:
 
 ```tsx
 // app/login/page.tsx
 import Script from "next/script";
 
-export default function Login() {
+export default async function Login({ searchParams }: { searchParams: Promise<{ next?: string; error?: string }> }) {
+  const { next, error } = await searchParams;
   return (
     <>
-      <div data-sandbox-signin data-client="your-client-id" data-next="/dashboard" />
+      {error === "access_denied" && <p>You chose not to share your details, so you're not signed in.</p>}
+      {error && error !== "access_denied" && <p>Signing in didn't work. Try again.</p>}
+      <div data-sandbox-signin data-client="your-client-id" data-next={next ?? "/dashboard"} />
       <Script src="https://auth.sandbox.is/button.js" strategy="afterInteractive" />
     </>
   );
@@ -96,6 +122,8 @@ if (path === "/api/auth/callback") return sandbox.handleCallback(req, res);
 
 Put it at `/api/auth/callback`. If you build your own app and link it on members.sandbox.is, that path is fixed: auth always sends people back to your origin plus `/api/auth/callback`. Only Sandbox's own properties can use a different path, which they set with `callbackPath`.
 
+When a sign-in can't be completed, the Next.js route sends the person to `/login?error=<reason>` (change the page with `retryPath`), and the Node adapter shows a short page with the reason in small print. The reasons are listed under [troubleshooting](#troubleshooting).
+
 ## 3. Configuration
 
 Set these in your environment. They work the same for both adapters.
@@ -107,6 +135,10 @@ Set these in your environment. They work the same for both adapters.
 | `SANDBOX_AUTH_ORIGIN` | optional | defaults to `https://auth.sandbox.is` |
 | `SANDBOX_AUTH_CLIENT_SESSION_TTL` | optional | how long a session lasts, in seconds; defaults to 30 days |
 | `SANDBOX_AUTH_BYPASS` | optional | for testing against a protected preview of auth; leave unset in production |
+
+Set them wherever your host keeps environment variables, for the build as well as at run time.
+
+Serve your app over HTTPS in production. The session cookie uses the `__Host-` prefix, which requires it. On a plain http dev server the cookie name changes automatically, so local development still works.
 
 Both required names start with `SANDBOX_AUTH_CLIENT_` because your app is a client of Sandbox Auth: `CLIENT_ID` is how auth knows you, and `CLIENT_SESSION_SECRET` signs the session cookie you keep on your own side.
 
@@ -138,20 +170,39 @@ if (!member) return redirect("/login");
 const { role } = await db.members.findBySub(member.sub); // your table, your rules
 ```
 
-## Gate pages
+With no session cookie, `getSession` returns `null` without needing any configuration, so pages build and render before your app has its client id.
 
-In **Next.js**, protect pages with middleware. It does three things: let public paths through, read the session from the cookie, and send anyone without one to `/login`. Because it runs on every request, it's also where a Sandbox sign-out gets caught, before the page loads.
+### Profile fields
 
-Middleware can't use `next/headers`, so it reaches for the `core` functions directly. Copy this and edit `PUBLIC` for your app:
+An app a member built can ask for these profile fields when it's linked. Each one reaches your app in `member.member_data` only if the person ticked it when they first signed in, and only if they've filled it in:
+
+| key | what it holds |
+|---|---|
+| `preferred_name` | the name they'd like to be called |
+| `current_city` | the city they live in now |
+| `current_hub` | the name of their current Sandbox hub |
+| `entry_hub` | the name of the hub they joined through |
+| `member_since` | when they became a member |
+| `date_of_birth` | `YYYY-MM-DD`, or `--MM-DD` if they hide their birth year |
 
 ```ts
-// middleware.ts
+const city = member.member_data?.current_city; // undefined unless they shared it
+```
+
+## Gate pages
+
+In **Next.js**, protect pages with a proxy (what Next.js 15 and earlier called middleware; use `middleware.ts` and name the function `middleware` there). It does three things: let public paths through, read the session from the cookie, and send anyone without one to `/login`, remembering where they were going in `?next=`. Because it runs on every request, it's also where a Sandbox sign-out gets caught, before the page loads.
+
+The proxy can't use `next/headers`, so it reaches for the `core` functions directly. Copy this and edit `PUBLIC` for your app:
+
+```ts
+// proxy.ts, next to your app directory
 import { NextRequest, NextResponse } from "next/server";
 import { resolveConfig, readSession, revoked, cookieName } from "sandbox-auth/core";
 
 const PUBLIC = ["/login", "/api/auth"];
 
-export default async function middleware(request: NextRequest) {
+export default async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (PUBLIC.some((p) => pathname.startsWith(p))) return NextResponse.next();
 
@@ -210,9 +261,9 @@ window.location.href = endSessionUrl;
 
 ### Signing out of Sandbox signs out everywhere
 
-When someone signs out of Sandbox, their session ends in every app, not just the one they were in. Auth records the sign-out, and both `getSession` and the middleware check reject any session created before it, clearing the cookie. The same thing happens when an admin removes a member.
+When someone signs out of Sandbox, their session ends in every app, not just the one they were in. Auth records the sign-out, and both `getSession` and the page check treat any session created before it as signed out. The cookie itself stays until it expires or your app clears it with `signOut`. The same thing happens when an admin removes a member.
 
-- `getSession` does this automatically, in both adapters. In Next.js middleware, call `revoked(cfg, session)` yourself, as shown above.
+- `getSession` does this automatically, in both adapters. In the Next.js proxy, call `revoked(cfg, session)` yourself, as shown above.
 - The check calls a small, cached endpoint on auth, so it's fast and rarely reaches auth itself.
 - If it can't reach auth, it treats the session as still valid — an auth outage never locks people out of your app. The session's normal expiry is the backstop.
 - It takes effect within about 15 seconds. A login after the sign-out is newer, so it isn't affected.
@@ -235,14 +286,22 @@ When someone signs out of Sandbox, their session ends in every app, not just the
 
 **`sandbox-auth/node`** — `sandboxAuth(overrides?)` returns `{ cfg, handleCallback(req, res), getSession(req), signOut(req, res) }`.
 
-**`sandbox-auth/core`** — the building blocks the adapters use, and what you reach for in middleware: `resolveConfig`, `cookieName`, `readSession`, `revoked`, `completeSignIn`, `endSessionUrl`.
+**`sandbox-auth/core`** — the building blocks the adapters use, and what you reach for in the proxy: `resolveConfig`, `cookieName`, `readSession`, `revoked`, `completeSignIn`, `endSessionUrl`.
 
 ---
 
-## Before you start
+## Troubleshooting
 
-- **Get a client id.** If you're a member building your own app, link it on the Vibes page at members.sandbox.is, giving its live https address and, if you like, a local port for development. Once an admin approves it you get a client id. Auth only sends people back to the addresses registered then, which is what keeps a public client safe. The first time each person signs in, they're asked whether to share their details with your app.
-- **Serve over HTTPS in production.** The session cookie uses the `__Host-` prefix, which requires it. On a plain http dev server the cookie name changes automatically, so local development still works.
+| what you see | what it means |
+|---|---|
+| no button on the login page | auth doesn't know the client id: it's mistyped, or the app isn't approved yet. The browser console says which id. |
+| auth says the app isn't one it knows (`invalid_client`) | the same: the id your app sends isn't a linked, approved app |
+| auth refuses the return address (`invalid_redirect_uri`) | your callback isn't at your linked address plus `/api/auth/callback`, or you're on an address you didn't link |
+| back at login with `error=access_denied` | the person chose Cancel when asked to share their details |
+| back at login with `error=state_mismatch` or `no_transaction` | the sign-in started in another tab or browser, or took too long; starting again fixes it |
+| back at login with `error=invalid_grant`, `token_invalid` or `nonce_mismatch` | the code was used twice or went stale; starting again fixes it. If it keeps happening, check the clock on your server. |
+| signed in, but `getSession` returns `null` | `SANDBOX_AUTH_CLIENT_SESSION_SECRET` differs between where the cookie was set and where it's read, or changed since |
+| `getSession` throws "set SANDBOX_AUTH_CLIENT_ID" | someone has a session cookie but the app has no client id configured where that code runs |
 
 ## How it's designed
 
