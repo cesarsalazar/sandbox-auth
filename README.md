@@ -93,7 +93,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
     <>
       {error === "access_denied" && <p>You chose not to share your details, so you're not signed in.</p>}
       {error && error !== "access_denied" && <p>Signing in didn't work. Try again.</p>}
-      <div data-sandbox-signin data-client="your-client-id" data-next={next ?? "/dashboard"} />
+      <div data-sandbox-signin data-client={process.env.SANDBOX_AUTH_CLIENT_ID} data-next={next ?? "/dashboard"} />
       <Script src="https://auth.sandbox.is/button.js" strategy="afterInteractive" />
     </>
   );
@@ -272,7 +272,7 @@ When someone signs out of Sandbox, their session ends in every app, not just the
 - If it can't reach auth, it treats the session as still valid — an auth outage never locks people out of your app. The session's normal expiry is the backstop.
 - It takes effect within about 15 seconds. A login after the sign-out is newer, so it isn't affected.
 
-*Requires v0.4.0.*
+*Added in v0.4.0.*
 
 ---
 
