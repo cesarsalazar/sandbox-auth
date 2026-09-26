@@ -36,7 +36,7 @@ What auth accepts as your app's address:
 - Not `localhost`, and nothing under `sandbox.is`. For local development, give a port instead.
 - Auth then sends people back to exactly `https://<your address>/api/auth/callback`, and `http://localhost:<port>/api/auth/callback` if you gave a port. Your callback route has to be at that path.
 
-The first time each person signs in, auth asks whether to share their details with your app: the basics, and each profile field you asked for, one by one. Their answer is remembered until they remove your app at auth.sandbox.is.
+The first time each person signs in, auth shows them what your app will get: their name, email, phone and photo, plus a switch for each profile field you asked for. Those switches start on, and they can turn any of them off. Their answer is remembered until they choose Stop sharing on their Sandbox account page at auth.sandbox.is. If you later ask for a new field, they're asked about it once.
 
 ---
 
@@ -174,7 +174,7 @@ With no session cookie, `getSession` returns `null` without needing any configur
 
 ### Profile fields
 
-An app a member built can ask for these profile fields when it's linked. Each one reaches your app in `member.member_data` only if the person ticked it when they first signed in, and only if they've filled it in:
+An app a member built can ask for these profile fields when it's linked. Each one reaches your app in `member.member_data` unless the person switched it off when they signed in, and only if they've filled it in:
 
 | key | what it holds |
 |---|---|
