@@ -34,7 +34,8 @@ What auth accepts as your app's address:
 
 - A bare https address with no path, like `https://polls.example.com`. It can't be changed later; a new address means linking again.
 - Not `localhost`, and nothing under `sandbox.is`. For local development, give a port instead.
-- Auth then sends people back to exactly `https://<your address>/api/auth/callback`, and `http://localhost:<port>/api/auth/callback` if you gave a port. Your callback route has to be at that path.
+- Auth then sends people back to exactly `https://<your address>/api/auth/callback`, and `http://localhost:<port>/api/auth/callback` if you gave a port.
+- If your app already uses `/api/auth/` for something else (NextAuth does), register a different callback path when you link it, like `/auth/sandbox/callback`. It has to be a plain path: letters, digits, `- _ . ~` and `/`. Then set it in [your callback route](#2-the-callback) and on [the button](#1-the-button) too.
 
 The first time each person signs in, auth shows them what your app will get: their name, email, phone and photo, plus a switch for each profile field you asked for. Those switches start on, and they can turn any of them off. Their answer is remembered until they choose Stop sharing on their Sandbox account page at auth.sandbox.is. If you later ask for a new field, they're asked about it once.
 
@@ -47,7 +48,7 @@ Install it from GitHub, pinned to a version tag. It isn't published to npm.
 ```json
 {
   "dependencies": {
-    "sandbox-auth": "git+https://github.com/cesarsalazar/sandbox-auth.git#v0.7.1",
+    "sandbox-auth": "git+https://github.com/sandbox-is/sandbox-auth.git#v0.7.2",
     "jose": "^5"
   }
 }
@@ -76,7 +77,7 @@ To send them to a particular page after they sign in, add `data-next`:
 |---|---|---|
 | `data-client` | **required** | your registered client id |
 | `data-next` | optional | where to land after signing in |
-| `data-callback` | leave unset | your callback URL; defaults to your origin plus `/api/auth/callback`, the only one a linked app can use |
+| `data-callback` | only with a custom path | the full URL of your callback, e.g. `https://polls.example.com/auth/sandbox/callback`; defaults to your origin plus `/api/auth/callback` |
 | `data-scope` | leave unset | defaults to `openid`, the only scope there is |
 
 If the button doesn't appear, the client id isn't one auth knows. See [troubleshooting](#troubleshooting).
@@ -120,7 +121,23 @@ const sandbox = sandboxAuth();
 if (path === "/api/auth/callback") return sandbox.handleCallback(req, res);
 ```
 
-Put it at `/api/auth/callback`. If you build your own app and link it on members.sandbox.is, that path is fixed: auth always sends people back to your origin plus `/api/auth/callback`. Only Sandbox's own properties can use a different path, which they set with `callbackPath`.
+Put it at `/api/auth/callback`, the path auth sends people back to unless you registered another.
+
+**A different path.** If you registered one, put the route there and tell the library, so the address it sends to auth matches:
+
+```ts
+// app/auth/sandbox/callback/route.ts
+import { callback } from "sandbox-auth/next";
+export const GET = callback({ callbackPath: "/auth/sandbox/callback" });
+```
+
+```js
+// Node
+const sandbox = sandboxAuth({ callbackPath: "/auth/sandbox/callback" });
+if (path === "/auth/sandbox/callback") return sandbox.handleCallback(req, res);
+```
+
+And give the button the full URL with `data-callback`.
 
 When a sign-in can't be completed, the Next.js route sends the person to `/login?error=<reason>` (change the page with `retryPath`), and the Node adapter shows a short page with the reason in small print. The reasons are listed under [troubleshooting](#troubleshooting).
 
@@ -300,7 +317,7 @@ When someone signs out of Sandbox, their session ends in every app, not just the
 |---|---|
 | no button on the login page | auth doesn't know the client id: it's mistyped, or the app isn't approved yet. The browser console says which id. |
 | auth says the app isn't one it knows (`invalid_client`) | the same: the id your app sends isn't a linked, approved app |
-| auth refuses the return address (`invalid_redirect_uri`) | your callback isn't at your linked address plus `/api/auth/callback`, or you're on an address you didn't link |
+| auth refuses the return address (`invalid_redirect_uri`) | the callback URL your app sends isn't the one you linked: check the path in `callbackPath` and `data-callback`, and that you're on an address you linked |
 | back at login with `error=access_denied` | the person chose Cancel when asked to share their details |
 | back at login with `error=state_mismatch` or `no_transaction` | the sign-in started in another tab or browser, or took too long; starting again fixes it |
 | back at login with `error=invalid_grant`, `token_invalid` or `nonce_mismatch` | the code was used twice or went stale; starting again fixes it. If it keeps happening, check the clock on your server. |

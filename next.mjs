@@ -18,10 +18,13 @@ function originOf(request) {
   return `${proto}://${host}`;
 }
 
-// The one-line callback route mounts this.
+// The one-line callback route mounts this. The config is read on the first
+// request, not when the route file is imported, so a build that imports it
+// before the app has a client id still succeeds.
 export function callback(overrides = {}) {
-  const cfg = cfgOnce(overrides);
+  let cfg;
   return async function GET(request) {
+    cfg ??= cfgOnce(overrides);
     const origin = originOf(request);
     const secure = origin.startsWith('https://');
     const query = Object.fromEntries(new URL(request.url).searchParams);
